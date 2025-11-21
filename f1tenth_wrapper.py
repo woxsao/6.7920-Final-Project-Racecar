@@ -38,16 +38,56 @@ class F110SB3Wrapper(gym.Wrapper):
                             high=np.inf*np.ones(val.shape, dtype=np.float32),
                             dtype=np.float32)
         self.observation_space = gym.spaces.Dict(spaces)
+        self.last_pos = None
+        self.prev_distance_to_finish = None
     def reset(self, **kwargs):
         poses = kwargs.get("poses", self.start_pose)
         obs_dict, _, _, _ = self.env.reset(poses=poses)
-        return {k: np.array(v, dtype=np.float32).flatten() for k, v in obs_dict.items()}
+
+        ego_idx = obs_dict['ego_idx']
+        ego_pos = np.array([obs_dict['poses_x'][ego_idx], obs_dict['poses_y'][ego_idx]])
+        finish_line = np.array([self.env.start_xs[ego_idx], self.env.start_ys[ego_idx]]) + 10 * self.env.start_rot[:, 0]
+
+        # store distances for reward shaping
+        self.last_pos = ego_pos
+        self.prev_distance_to_finish = np.linalg.norm(finish_line - ego_pos)
+
+        # build observation including goal vector
+        goal_vec = finish_line - ego_pos
+        obs_dict = {k: np.array(v, dtype=np.float32).flatten() for k, v in obs_dict.items()}
+        obs_dict['goal_vec'] = goal_vec.astype(np.float32)
+
+        return obs_dict
 
     def step(self, action):
-        # Ensure correct shape (num_agents, 2)
-        action = np.atleast_2d(action).astype(np.float32)
-        obs_dict, reward, done, info = self.env.step(action)
-        obs_out = {k: np.array(v, dtype=np.float32).flatten() for k, v in obs_dict.items()}
-        # print("Action taken:", action)
-        return obs_out, reward, done, info
+        action = np.atleast_2d(action)  # ensure 2D for the simulator
+        obs, _, done, info = self.env.step(action)
+
+        ego_idx = obs['ego_idx']
+        ego_pos = np.array([obs['poses_x'][ego_idx], obs['poses_y'][ego_idx]])
+
+        if self.last_pos is None:
+            self.last_pos = ego_pos
+
+        # simple progress reward: encourage movement
+        delta_pos = ego_pos - self.last_pos
+        reward = np.linalg.norm(delta_pos)  # reward is distance moved since last step
+
+        # collision penalty
+        reward += -5.0 if obs['collisions'][ego_idx] else 0.0
+
+        # update last position
+        self.last_pos = ego_pos
+
+        # add goal vector to observation (optional)
+        finish_line = np.array([self.env.start_xs[ego_idx], self.env.start_ys[ego_idx]]) + 10 * self.env.start_rot[:, 0]
+        goal_vec = finish_line - ego_pos
+
+        obs_dict = {k: np.array(v, dtype=np.float32).flatten() for k, v in obs.items()}
+        obs_dict['goal_vec'] = goal_vec.astype(np.float32)
+
+        return obs_dict, reward, done, info
+
+
+
 

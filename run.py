@@ -28,16 +28,6 @@ env = F110SB3Wrapper(env, start_pose=initial_pose)
 # Wrap in DummyVecEnv for SB3
 vec_env = DummyVecEnv([lambda: env])
 
-# Optional: record video
-record = True
-if record:
-    vec_env = VecVideoRecorder(
-        vec_env,
-        video_folder="videos/",
-        record_video_trigger=lambda x: True,
-        video_length=1000
-    )
-
 # Load trained model
 model = PPO.load("f110_ppo_model", env=vec_env)
 
@@ -47,6 +37,9 @@ done = [False]
 while not done[0]:
     action, _states = model.predict(obs, deterministic=True)
     obs, reward, done, info = vec_env.step(action)
+
+    print(f"Obs: {obs}, Reward: {reward}, Done: {done}, Info: {info}")
+    print()
     vec_env.render()  # Show simulation
 
 vec_env.close()
