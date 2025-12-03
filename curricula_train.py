@@ -71,7 +71,7 @@ def main():
 
     # Train
     model.learn(total_timesteps=TIMESTEPS_PER_TRACK * len(train_tracks))
-    model.save("results/ppo_f110_multi_track_use_scan")
+    model.save("curricula_results/ppo_f110_multi_track_use_scan")
     print("Training complete and saved!")
 
 
