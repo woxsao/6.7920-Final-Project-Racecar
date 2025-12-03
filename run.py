@@ -8,6 +8,8 @@ from f110_gym.envs.base_classes import Integrator
 import yaml
 from argparse import Namespace
 import matplotlib.pyplot as plt
+
+from stable_baselines3.common.env_util import make_vec_env
 plt.ion()
 
 def render_scan(scan):
@@ -41,6 +43,7 @@ def run_eval(model_path, conf_path, initial_pose=None, env = None):
         env = F110SB3Wrapper(env, start_pose=initial_pose)
 
     vec_env = DummyVecEnv([lambda: env])
+    # vec_env = make_vec_env(lambda: env, n_envs=8)
 
     # Load trained model
     model = PPO.load(model_path, env=vec_env)

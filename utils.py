@@ -6,6 +6,7 @@ from argparse import Namespace
 from f110_gym.envs.base_classes import Integrator
 from f1tenth_wrapper import F110SB3Wrapper
 import gym
+from stable_baselines3.common.env_util import make_vec_env
 
 
 # -----------------------------

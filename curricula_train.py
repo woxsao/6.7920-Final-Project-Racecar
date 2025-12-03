@@ -10,6 +10,7 @@ from f1tenth_wrapper import F110SB3Wrapper
 from multi_track_env import MultiTrackEnv
 import warnings
 from utils import load_track_config, get_initial_pose, make_env_from_track, get_tracks_list
+from stable_baselines3.common.env_util import make_vec_env
 
 # -----------------------------
 # Config
@@ -17,7 +18,7 @@ from utils import load_track_config, get_initial_pose, make_env_from_track, get_
 TRACKS_DIR = "./curricula"
 TIMESTEP = 0.01
 TIMESTEPS_PER_TRACK = 1_000_000
-TRAIN_SPLIT = 0.8
+TRAIN_SPLIT = 1 # usually 0.8
 
 
 # -----------------------------
@@ -48,7 +49,9 @@ def main():
     # -----------------------------
     # Multi-track training environment
     # -----------------------------
-    train_env = MultiTrackEnv(train_tracks, lambda p: make_env_from_track(p, use_raceline=True))
+    x = lambda : MultiTrackEnv(train_tracks, lambda p: make_env_from_track(p, use_raceline=True))
+    
+    train_env = make_vec_env(x, n_envs=8)
     train_env.reset()
 
     # -----------------------------
