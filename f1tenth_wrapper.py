@@ -20,6 +20,7 @@ class F110SB3Wrapper(gym.Wrapper):
         self.raceline_vx = None
         self.raceline_kdtree = None
         self.raceline_curvature = None
+        self.progress = None
         if use_raceline:
             csv_files = [f for f in os.listdir(track_path) if f.endswith("_raceline.csv")]
             if csv_files:
@@ -29,6 +30,14 @@ class F110SB3Wrapper(gym.Wrapper):
                 # self.raceline_psi = df["psi_rad"].values
                 self.raceline_vx = df["vx_mps"].values
                 self.raceline_kdtree = KDTree(self.raceline_xy)
+                if "# s_m" in df.columns:
+                    self.progress = df["# s_m"].values
+                else:
+                    diffs = np.diff(self.raceline_xy, axis=0)      # shape (N-1, 2)
+                    dists = np.linalg.norm(diffs, axis=1)            # Euclidean distances between consecutive points
+                    self.progress = np.zeros(len(self.raceline_xy))
+                    self.progress[1:] = np.cumsum(dists)
+
 
         # --- Centerline ---
         self.centerline_xy = None
@@ -40,6 +49,12 @@ class F110SB3Wrapper(gym.Wrapper):
             x = df["# x_m"].values
             y = df["y_m"].values
             self.centerline_xy = np.vstack([x, y]).T
+            if self.progress is None:
+                diffs = np.diff(self.centerline_xy, axis=0)      # shape (N-1, 2)
+                dists = np.linalg.norm(diffs, axis=1)            # Euclidean distances between consecutive points
+                self.progress = np.zeros(len(self.centerline_xy))
+                self.progress[1:] = np.cumsum(dists)   
+
 
         # --- Action space ---
         self.action_space = Box(low=np.array([-np.pi, 0.0], dtype=np.float32),
@@ -137,24 +152,28 @@ class F110SB3Wrapper(gym.Wrapper):
         # steer_penalty = -0.01 * abs(steer - self.prev_steer) * max(0.2, 1.0 - 5 * curvature)
         # self.prev_steer = steer
 
-
+        # Progress reward using self.progress if available
+        if self.use_raceline and self.raceline_kdtree is not None and self.progress is not None:
+            prog = self.progress[idx]
+            progress_reward_status = prog / 100.0  # Scale as needed
         # --- Raceline reward ---
         raceline_reward = 0.0
         if self.use_raceline and self.raceline_kdtree is not None:
             dist_reward = 0.2 * np.exp(-5 * dist**2)
             heading_diff = abs(np.arctan2(np.sin(ego_theta - psi_ref), np.cos(ego_theta - psi_ref)))
             heading_reward = 0.1 * np.exp(-5 * heading_diff**2)
-            velocity_diff = abs(speed - vx_ref)
-            velocity_reward = 0.05 * np.exp(-0.5 * velocity_diff**2)
-            raceline_reward = dist_reward + heading_reward + velocity_reward
+            # velocity_diff = abs(speed - vx_ref)
+            # velocity_reward = 0.05 * np.exp(-0.5 * velocity_diff**2)
+            raceline_reward = dist_reward + heading_reward #+ velocity_reward
             
-
+        speed_reward = 0.05*speed
         reward = (
             progress_reward +
+            progress_reward_status +
             # wall_centering_reward +
             # wall_prox_penalty +
             # steer_penalty +
-            # speed_reward +
+            speed_reward +
             raceline_reward +
             collision_penalty
         )
