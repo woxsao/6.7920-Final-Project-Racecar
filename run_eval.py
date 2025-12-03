@@ -1,6 +1,6 @@
 import subprocess
 
-MODEL_PATH = "results/ppo_f110_multi_track_use_scan"
+MODEL_PATH = "results/ppo_f110_multi_track_5_tracks_2mil_per_track"
 VAL_TRACKS_FILE = "train_tracks.txt"   # or train_tracks.txt
 
 

@@ -16,9 +16,9 @@ def run_one(model_path, track_path):
 
     while not done and steps < MAX_STEPS:
         action, _ = model.predict(obs, deterministic=True)
-        print(action)
+        # print(action)
         obs, reward, done, info = env.step(action)
-        env.render(mode="human")
+        env.render(mode="human_fast")
         steps += 1
     print("Final steps:", steps, "obs:",obs)
     env.close()
