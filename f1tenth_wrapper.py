@@ -1,3 +1,192 @@
+# from scipy.spatial import KDTree
+# import gym
+# import os
+# import numpy as np
+# import pandas as pd
+# from gym.spaces import Box
+
+
+# class F110SB3Wrapper(gym.Wrapper):
+#     def __init__(self, env, start_pose, track_path, use_raceline=False):
+#         super().__init__(env)
+#         self.env = env
+#         self.start_pose = start_pose
+#         self.track_path = track_path
+#         self.use_raceline = use_raceline
+
+#         # --- Raceline ---
+#         self.raceline_xy = None
+#         self.raceline_psi = None
+#         self.raceline_vx = None
+#         self.raceline_kdtree = None
+#         self.raceline_curvature = None
+#         self.last_prog = None
+#         self.progress = None
+#         self.lap_count = 0
+#         if use_raceline:
+#             csv_files = [f for f in os.listdir(track_path) if f.endswith("_raceline.csv")]
+#             if csv_files:
+#                 df = pd.read_csv(os.path.join(track_path, csv_files[0]), skiprows=2, sep=';')
+#                 df.columns = df.columns.str.strip()
+#                 self.raceline_xy = np.vstack([df["x_m"].values, df["y_m"].values]).T
+#                 # self.raceline_psi = df["psi_rad"].values
+#                 self.raceline_vx = df["vx_mps"].values
+#                 self.raceline_kdtree = KDTree(self.raceline_xy)
+#                 if "# s_m" in df.columns:
+#                     self.progress = df["# s_m"].values
+#                 else:
+#                     diffs = np.diff(self.raceline_xy, axis=0)      # shape (N-1, 2)
+#                     dists = np.linalg.norm(diffs, axis=1)            # Euclidean distances between consecutive points
+#                     self.progress = np.zeros(len(self.raceline_xy))
+#                     self.progress[1:] = np.cumsum(dists)
+
+
+#         # --- Centerline ---
+#         self.centerline_xy = None
+#         self.centerline_curvature = None
+#         csv_files = [f for f in os.listdir(track_path) if f.endswith("_centerline.csv")]
+#         if csv_files:
+#             df = pd.read_csv(os.path.join(track_path, csv_files[0]), sep=',')
+#             df.columns = df.columns.str.strip()
+#             x = df["# x_m"].values
+#             y = df["y_m"].values
+#             self.centerline_xy = np.vstack([x, y]).T
+#             if self.progress is None:
+#                 diffs = np.diff(self.centerline_xy, axis=0)      # shape (N-1, 2)
+#                 dists = np.linalg.norm(diffs, axis=1)            # Euclidean distances between consecutive points
+#                 self.progress = np.zeros(len(self.centerline_xy))
+#                 self.progress[1:] = np.cumsum(dists)   
+
+
+#         # --- Action space ---
+#         self.action_space = Box(low=np.array([-np.pi, 0.0], dtype=np.float32),
+#                                 high=np.array([np.pi, 5.0], dtype=np.float32),
+#                                 dtype=np.float32)
+
+#         # --- Observation space ---
+#         obs_dict, _, _, _ = self.env.reset(poses=np.zeros((self.env.num_agents, 3)))
+#         self.obs_keys = list(obs_dict.keys())
+#         spaces = {}
+#         for k in self.obs_keys:
+#             val = np.array(obs_dict[k], dtype=np.float32).flatten()
+#             spaces[k] = Box(low=-np.inf*np.ones(val.shape, dtype=np.float32),
+#                             high=np.inf*np.ones(val.shape, dtype=np.float32),
+#                             dtype=np.float32)
+#         self.observation_space = gym.spaces.Dict(spaces)
+
+#         # Track previous state
+#         self.last_pos = None
+#         self.prev_steer = None
+#     def reset(self, random_start=True, **kwargs):
+#         if 'poses' in kwargs:
+#             poses = kwargs['poses']
+#             # print(f"Resetting with provided poses: {poses}")
+#         elif self.centerline_xy is not None and random_start:
+#             # print("Resetting with random start on centerline")
+#             s_idx = np.random.randint(0, len(self.centerline_xy))
+#             x, y = self.centerline_xy[s_idx]
+#             psi = 0.0
+#             if s_idx < len(self.centerline_xy) - 1:
+#                 dx = self.centerline_xy[s_idx + 1, 0] - x
+#                 dy = self.centerline_xy[s_idx + 1, 1] - y
+#                 psi = np.arctan2(dy, dx)
+#             poses = np.array([[x, y, psi]], dtype=np.float32)
+#         else:
+#             poses = kwargs.get("poses", self.start_pose)
+
+#         obs_dict, _, _, _ = self.env.reset(poses=poses)
+#         ego_idx = obs_dict['ego_idx']
+#         self.last_pos = np.array([obs_dict['poses_x'][ego_idx], obs_dict['poses_y'][ego_idx]])
+#         self.prev_steer = None
+
+#         obs_dict = {k: np.array(v, dtype=np.float32).flatten() for k, v in obs_dict.items()}
+#         return obs_dict
+    
+#     def step(self, action):
+#         action = np.atleast_2d(action)
+#         steer = float(action[0, 0])
+#         speed = float(action[0, 1])
+
+#         obs, _, done, info = self.env.step(action)
+#         ego_idx = obs['ego_idx']
+#         ego_pos = np.array([obs['poses_x'][ego_idx], obs['poses_y'][ego_idx]])
+#         ego_theta = obs['poses_theta'][ego_idx]
+
+#         # --- Find closest point on raceline or centerline ---
+#         if self.use_raceline and self.raceline_kdtree is not None:
+#             dist, idx = self.raceline_kdtree.query(ego_pos)
+#             # calculate reference heading
+#             dx = self.raceline_xy[min(idx+1, len(self.raceline_xy)-1),0] - self.raceline_xy[idx,0]
+#             dy = self.raceline_xy[min(idx+1, len(self.raceline_xy)-1),1] - self.raceline_xy[idx,1]
+#             psi_ref = np.arctan2(dy, dx)
+#         else:
+#             kdtree = KDTree(self.centerline_xy)
+#             dist, idx = kdtree.query(ego_pos)
+#             dx = self.centerline_xy[min(idx+1, len(self.centerline_xy)-1),0] - self.centerline_xy[idx,0]
+#             dy = self.centerline_xy[min(idx+1, len(self.centerline_xy)-1),1] - self.centerline_xy[idx,1]
+#             psi_ref = np.arctan2(dy, dx)
+
+#         # --- Forward progress reward along track tangent ---
+#         track_vec = np.array([np.cos(psi_ref), np.sin(psi_ref)])
+#         progress = np.dot(ego_pos - self.last_pos, track_vec) if self.last_pos is not None else 0.0
+#         self.last_pos = ego_pos
+#         progress_reward = np.clip(progress, 0, 0.3)
+
+#         # --- Collision penalty ---
+#         collision_penalty = -1.0 if obs["collisions"][ego_idx] else 0.0
+
+#         # --- Wall centering reward ---
+#         scan = obs['scans'][ego_idx].flatten()
+#         left_dist = np.mean(scan[:max(1, len(scan)//10)])
+#         right_dist = np.mean(scan[-max(1, len(scan)//10):])
+#         wall_centering_reward = 0.05 * np.exp(-5 * abs(left_dist - right_dist))
+
+#         min_dist = np.min(scan)
+#         wall_prox_penalty = -0.05 * max(0.0, 0.3 - min_dist)
+
+
+#         look_ahead = len(scan)//4  # consider the next quarter of beams
+#         left_ahead = np.mean(scan[:look_ahead])
+#         right_ahead = np.mean(scan[-look_ahead:])
+
+#         # if left space is smaller than right, agent should turn right
+#         scan_turn_reward = 0.1 * np.tanh(right_ahead - left_ahead) * steer
+#         # if self.use_raceline and self.raceline_kdtree is not None and self.progress is not None:
+#         if self.last_prog is None:
+#             self.last_prog = self.progress[idx]
+#         prog = self.progress[idx]
+#         progress_delta = prog - self.last_prog
+#         self.last_prog = prog
+#         progress_reward_status = np.clip(progress_delta, 0, 1.0)
+
+#         if obs["lap_counts"][ego_idx] > self.lap_count:
+#             self.lap_count += 1
+#             progress_reward_status += 1000.0
+#         # --- Raceline reward ---
+#         raceline_reward = 0.0
+#         if self.use_raceline and self.raceline_kdtree is not None:
+#             dist_reward = 0.2 * np.exp(-5 * dist**2)
+#             heading_diff = abs(np.arctan2(np.sin(ego_theta - psi_ref), np.cos(ego_theta - psi_ref)))
+#             heading_reward = 0.1 * np.exp(-5 * heading_diff**2)
+#             # velocity_diff = abs(speed - vx_ref)
+#             # velocity_reward = 0.05 * np.exp(-0.5 * velocity_diff**2)
+#             raceline_reward = dist_reward + heading_reward #+ velocity_reward
+            
+#         speed_reward = 0.05*speed
+#         reward = (
+#             progress_reward +
+#             progress_reward_status +
+#             speed_reward +
+#             raceline_reward +
+#             collision_penalty +
+#             scan_turn_reward
+#         )
+#         # print(f"Rewards => Progress: {progress_reward:.3f}, ProgressStatus: {progress_reward_status:.3f}, Raceline: {raceline_reward:.3f}, Collision: {collision_penalty:.3f}, ScanTurn: {scan_turn_reward:.3f}, Total: {reward:.3f}")
+
+#         obs_dict = {k: np.array(v, dtype=np.float32).flatten() for k, v in obs.items()}
+#         return obs_dict, reward, done, info
+
+
 from scipy.spatial import KDTree
 import gym
 import os
@@ -14,34 +203,40 @@ class F110SB3Wrapper(gym.Wrapper):
         self.track_path = track_path
         self.use_raceline = use_raceline
 
-        # --- Raceline ---
+        # --- Raceline data (optional) ---
         self.raceline_xy = None
-        self.raceline_psi = None
         self.raceline_vx = None
         self.raceline_kdtree = None
-        self.raceline_curvature = None
-        self.progress = None
+
+        # --- Centerline data ---
+        self.centerline_xy = None
+        self.centerline_kdtree = None
+
+        # --- Progress and lap tracking ---
+        self.progress = None        # s_m along raceline/centerline
+        self.last_prog = 0.0        # previous s_m for incremental reward
+        self.lap_count = 0
+
+        # --- Load raceline if requested ---
         if use_raceline:
             csv_files = [f for f in os.listdir(track_path) if f.endswith("_raceline.csv")]
             if csv_files:
                 df = pd.read_csv(os.path.join(track_path, csv_files[0]), skiprows=2, sep=';')
                 df.columns = df.columns.str.strip()
                 self.raceline_xy = np.vstack([df["x_m"].values, df["y_m"].values]).T
-                # self.raceline_psi = df["psi_rad"].values
-                self.raceline_vx = df["vx_mps"].values
+                self.raceline_vx = df["vx_mps"].values if "vx_mps" in df.columns else None
                 self.raceline_kdtree = KDTree(self.raceline_xy)
+                # progress: use # s_m if available otherwise compute arc-length
                 if "# s_m" in df.columns:
-                    self.progress = df["# s_m"].values
+                    self.progress = df["# s_m"].values.copy()
                 else:
-                    diffs = np.diff(self.raceline_xy, axis=0)      # shape (N-1, 2)
-                    dists = np.linalg.norm(diffs, axis=1)            # Euclidean distances between consecutive points
-                    self.progress = np.zeros(len(self.raceline_xy))
-                    self.progress[1:] = np.cumsum(dists)
+                    diffs = np.diff(self.raceline_xy, axis=0)
+                    dists = np.linalg.norm(diffs, axis=1)
+                    p = np.zeros(len(self.raceline_xy))
+                    p[1:] = np.cumsum(dists)
+                    self.progress = p
 
-
-        # --- Centerline ---
-        self.centerline_xy = None
-        self.centerline_curvature = None
+        # --- Load centerline (used as fallback) ---
         csv_files = [f for f in os.listdir(track_path) if f.endswith("_centerline.csv")]
         if csv_files:
             df = pd.read_csv(os.path.join(track_path, csv_files[0]), sep=',')
@@ -49,38 +244,43 @@ class F110SB3Wrapper(gym.Wrapper):
             x = df["# x_m"].values
             y = df["y_m"].values
             self.centerline_xy = np.vstack([x, y]).T
+            self.centerline_kdtree = KDTree(self.centerline_xy)
+            # if progress not set by raceline, compute from centerline
             if self.progress is None:
-                diffs = np.diff(self.centerline_xy, axis=0)      # shape (N-1, 2)
-                dists = np.linalg.norm(diffs, axis=1)            # Euclidean distances between consecutive points
-                self.progress = np.zeros(len(self.centerline_xy))
-                self.progress[1:] = np.cumsum(dists)   
-
+                diffs = np.diff(self.centerline_xy, axis=0)
+                dists = np.linalg.norm(diffs, axis=1)
+                p = np.zeros(len(self.centerline_xy))
+                p[1:] = np.cumsum(dists)
+                self.progress = p
 
         # --- Action space ---
-        self.action_space = Box(low=np.array([-np.pi, 0.0], dtype=np.float32),
-                                high=np.array([np.pi, 5.0], dtype=np.float32),
-                                dtype=np.float32)
+        self.action_space = Box(
+            low=np.array([-np.pi, 0.0], dtype=np.float32),
+            high=np.array([np.pi, 5.0], dtype=np.float32),
+            dtype=np.float32,
+        )
 
-        # --- Observation space ---
+        # --- Observation space (derived from env) ---
         obs_dict, _, _, _ = self.env.reset(poses=np.zeros((self.env.num_agents, 3)))
         self.obs_keys = list(obs_dict.keys())
         spaces = {}
         for k in self.obs_keys:
             val = np.array(obs_dict[k], dtype=np.float32).flatten()
-            spaces[k] = Box(low=-np.inf*np.ones(val.shape, dtype=np.float32),
-                            high=np.inf*np.ones(val.shape, dtype=np.float32),
+            spaces[k] = Box(low=-np.inf * np.ones(val.shape, dtype=np.float32),
+                            high=np.inf * np.ones(val.shape, dtype=np.float32),
                             dtype=np.float32)
         self.observation_space = gym.spaces.Dict(spaces)
 
-        # Track previous state
+        # --- State trackers ---
         self.last_pos = None
         self.prev_steer = None
+
     def reset(self, random_start=True, **kwargs):
+        # Accept 'poses' kwarg (used by your existing code)
         if 'poses' in kwargs:
             poses = kwargs['poses']
-            # print(f"Resetting with provided poses: {poses}")
         elif self.centerline_xy is not None and random_start:
-            # print("Resetting with random start on centerline")
+            # random start on centerline
             s_idx = np.random.randint(0, len(self.centerline_xy))
             x, y = self.centerline_xy[s_idx]
             psi = 0.0
@@ -97,9 +297,20 @@ class F110SB3Wrapper(gym.Wrapper):
         self.last_pos = np.array([obs_dict['poses_x'][ego_idx], obs_dict['poses_y'][ego_idx]])
         self.prev_steer = None
 
+        # initialize last_prog using nearest track point (if available)
+        if self.progress is not None:
+            pos = self.last_pos
+            if self.use_raceline and self.raceline_kdtree is not None:
+                _, idx = self.raceline_kdtree.query(pos)
+            else:
+                _, idx = self.centerline_kdtree.query(pos)
+            self.last_prog = float(self.progress[idx])
+        else:
+            self.last_prog = 0.0
+
         obs_dict = {k: np.array(v, dtype=np.float32).flatten() for k, v in obs_dict.items()}
         return obs_dict
-    
+
     def step(self, action):
         action = np.atleast_2d(action)
         steer = float(action[0, 0])
@@ -110,73 +321,101 @@ class F110SB3Wrapper(gym.Wrapper):
         ego_pos = np.array([obs['poses_x'][ego_idx], obs['poses_y'][ego_idx]])
         ego_theta = obs['poses_theta'][ego_idx]
 
-        # --- Find closest point on raceline or centerline ---
+        # --- Find closest reference point (raceline if available else centerline) ---
         if self.use_raceline and self.raceline_kdtree is not None:
             dist, idx = self.raceline_kdtree.query(ego_pos)
-            # calculate reference heading
-            dx = self.raceline_xy[min(idx+1, len(self.raceline_xy)-1),0] - self.raceline_xy[idx,0]
-            dy = self.raceline_xy[min(idx+1, len(self.raceline_xy)-1),1] - self.raceline_xy[idx,1]
-            psi_ref = np.arctan2(dy, dx)
-            # check first psi_ref
-            # print(psi_ref)
-            vx_ref = self.raceline_vx[idx]
+            ref_xy = self.raceline_xy
         else:
-            kdtree = KDTree(self.centerline_xy)
-            dist, idx = kdtree.query(ego_pos)
-            dx = self.centerline_xy[min(idx+1, len(self.centerline_xy)-1),0] - self.centerline_xy[idx,0]
-            dy = self.centerline_xy[min(idx+1, len(self.centerline_xy)-1),1] - self.centerline_xy[idx,1]
-            psi_ref = np.arctan2(dy, dx)
-            vx_ref = 2.0
+            dist, idx = self.centerline_kdtree.query(ego_pos)
+            ref_xy = self.centerline_xy
 
-        # --- Forward progress reward along track tangent ---
+        # compute reference heading (tangent) at idx
+        next_idx = min(idx + 1, len(ref_xy) - 1)
+        dx = ref_xy[next_idx, 0] - ref_xy[idx, 0]
+        dy = ref_xy[next_idx, 1] - ref_xy[idx, 1]
+        psi_ref = np.arctan2(dy, dx)
+
+        # --- Forward incremental progress reward (along track tangent) ---
         track_vec = np.array([np.cos(psi_ref), np.sin(psi_ref)])
-        progress = np.dot(ego_pos - self.last_pos, track_vec) if self.last_pos is not None else 0.0
-        self.last_pos = ego_pos
-        progress_reward = np.clip(progress, 0, 0.3)
+        step_delta = ego_pos - self.last_pos if self.last_pos is not None else np.array([0.0, 0.0])
+        forward_progress = float(np.dot(step_delta, track_vec))
+        self.last_pos = ego_pos.copy()
+        progress_reward = float(np.clip(forward_progress, 0.0, 1.0))  # reward for moving forward
+
+        # --- Incremental s_m reward (stable lap progress) ---
+        progress_reward_inc = 0.0
+        if self.progress is not None:
+            prog = float(self.progress[idx])
+            prog_delta = prog - self.last_prog
+            # handle wrap-around if negative (optional)
+            if prog_delta < -0.5 * self.progress[-1]:
+                # agent likely wrapped to start (lap)
+                prog_delta = (prog + self.progress[-1]) - self.last_prog
+            prog_delta = max(prog_delta, 0.0)
+            progress_reward_inc = float(np.clip(prog_delta, 0.0, 2.0))  # cap to avoid explosion
+            self.last_prog = prog
 
         # --- Collision penalty ---
         collision_penalty = -1.0 if obs["collisions"][ego_idx] else 0.0
 
-        # --- Wall centering reward ---
+        # --- Scan-based signals ---
         scan = obs['scans'][ego_idx].flatten()
-        left_dist = np.mean(scan[:max(1, len(scan)//10)])
-        right_dist = np.mean(scan[-max(1, len(scan)//10):])
-        wall_centering_reward = 0.05 * np.exp(-5 * abs(left_dist - right_dist))
+        n = len(scan)
+        # left / right coarse averages
+        left_dist = np.mean(scan[: max(1, n // 6)])
+        right_dist = np.mean(scan[- max(1, n // 6):])
+        front_dist = np.mean(scan[n//3: -n//3]) if n > 6 else np.mean(scan)
 
-        min_dist = np.min(scan)
-        wall_prox_penalty = -0.05 * max(0.0, 0.3 - min_dist)
+        # wall proximity penalty (soft)
+        min_dist = float(np.min(scan))
+        wall_prox_penalty = -0.02 * max(0.0, 0.15 - min_dist)
 
-        # --- Steering smoothness penalty ---
-        # if self.prev_steer is None:
-        #     self.prev_steer = steer
-        # steer_penalty = -0.01 * abs(steer - self.prev_steer) * max(0.2, 1.0 - 5 * curvature)
-        # self.prev_steer = steer
+        # scan-based turn cue (lookahead sectors)
+        look_ahead = max(1, n // 4)
+        left_ahead = np.mean(scan[:look_ahead])
+        right_ahead = np.mean(scan[-look_ahead:])
+        turn_signal = np.tanh((right_ahead - left_ahead) / 2.0)  # in [-1,1]
 
-        # Progress reward using self.progress if available
-        if self.use_raceline and self.raceline_kdtree is not None and self.progress is not None:
-            prog = self.progress[idx]
-            progress_reward_status = prog / 100.0  # Scale as needed
-        # --- Raceline reward ---
+        # only reward steering when turn_signal is significant
+        scan_turn_reward = 0.0
+        if abs(turn_signal) > 0.06:
+            # encourage steering toward more open side (scaled)
+            scan_turn_reward = 0.06 * turn_signal * steer
+
+        # --- Raceline / heading reward (optional) ---
         raceline_reward = 0.0
         if self.use_raceline and self.raceline_kdtree is not None:
-            dist_reward = 0.2 * np.exp(-5 * dist**2)
             heading_diff = abs(np.arctan2(np.sin(ego_theta - psi_ref), np.cos(ego_theta - psi_ref)))
-            heading_reward = 0.1 * np.exp(-5 * heading_diff**2)
-            # velocity_diff = abs(speed - vx_ref)
-            # velocity_reward = 0.05 * np.exp(-0.5 * velocity_diff**2)
-            raceline_reward = dist_reward + heading_reward #+ velocity_reward
-            
-        speed_reward = 0.05*speed
+            raceline_reward = 0.15 * np.exp(-8.0 * heading_diff**2)  # encourage alignment
+
+        # --- Speed shaping (encourage moderate speed, penalize extreme in corners) ---
+        # simple reward proportional to speed (keeps agent moving)
+        speed_reward = 0.03 * speed
+
+        # Optional speed penalty if front is too close
+        speed_penalty = 0.0
+        if front_dist < 0.5:
+            speed_penalty = -0.05 * max(0.0, 0.5 - front_dist)
+
+        # --- Lap completion bonus (small, on first detection) ---
+        lap_bonus = 0.0
+        if "lap_counts" in obs and obs["lap_counts"][ego_idx] > self.lap_count:
+            self.lap_count = int(obs["lap_counts"][ego_idx])
+            lap_bonus = 5.0
+
+        # --- Total reward (balanced) ---
         reward = (
             progress_reward +
-            progress_reward_status +
-            # wall_centering_reward +
-            # wall_prox_penalty +
-            # steer_penalty +
+            progress_reward_inc +
             speed_reward +
             raceline_reward +
-            collision_penalty
+            scan_turn_reward +
+            wall_prox_penalty +
+            speed_penalty +
+            collision_penalty +
+            lap_bonus
         )
 
+        # Convert observations to np.float32 flattened dict (same as before)
         obs_dict = {k: np.array(v, dtype=np.float32).flatten() for k, v in obs.items()}
-        return obs_dict, reward, done, info
+        return obs_dict, float(reward), done, info
