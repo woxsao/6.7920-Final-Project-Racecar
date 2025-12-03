@@ -1,0 +1,9 @@
+image: example_map.png
+resolution: 0.062500 # image is 100 m x 100 m --> 16px = 1 m
+
+# in px the red dot (origin) is 880, 1440 
+origin: [-50, -10, 0.000000] # this is in m not px
+
+negate: 0 # idk what this is
+occupied_thresh: 0.45 # idk what this is
+free_thresh: 0.196 # idk what this is
