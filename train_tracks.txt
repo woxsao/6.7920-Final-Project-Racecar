@@ -1,1 +1,1 @@
-./envs/f1tenth_racetracks/Austin
+./envs/f1tenth_racetracks/Shanghai

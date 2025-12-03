@@ -26,7 +26,7 @@ class F110SB3Wrapper(gym.Wrapper):
                 df = pd.read_csv(os.path.join(track_path, csv_files[0]), skiprows=2, sep=';')
                 df.columns = df.columns.str.strip()
                 self.raceline_xy = np.vstack([df["x_m"].values, df["y_m"].values]).T
-                self.raceline_psi = df["psi_rad"].values
+                # self.raceline_psi = df["psi_rad"].values
                 self.raceline_vx = df["vx_mps"].values
                 self.raceline_kdtree = KDTree(self.raceline_xy)
 
@@ -98,15 +98,20 @@ class F110SB3Wrapper(gym.Wrapper):
         # --- Find closest point on raceline or centerline ---
         if self.use_raceline and self.raceline_kdtree is not None:
             dist, idx = self.raceline_kdtree.query(ego_pos)
-            psi_ref = self.raceline_psi[idx]
-            # vx_ref = self.raceline_vx[idx]
+            # calculate reference heading
+            dx = self.raceline_xy[min(idx+1, len(self.raceline_xy)-1),0] - self.raceline_xy[idx,0]
+            dy = self.raceline_xy[min(idx+1, len(self.raceline_xy)-1),1] - self.raceline_xy[idx,1]
+            psi_ref = np.arctan2(dy, dx)
+            # check first psi_ref
+            # print(psi_ref)
+            vx_ref = self.raceline_vx[idx]
         else:
             kdtree = KDTree(self.centerline_xy)
             dist, idx = kdtree.query(ego_pos)
             dx = self.centerline_xy[min(idx+1, len(self.centerline_xy)-1),0] - self.centerline_xy[idx,0]
             dy = self.centerline_xy[min(idx+1, len(self.centerline_xy)-1),1] - self.centerline_xy[idx,1]
             psi_ref = np.arctan2(dy, dx)
-            # vx_ref = 2.0
+            vx_ref = 2.0
 
         # --- Forward progress reward along track tangent ---
         track_vec = np.array([np.cos(psi_ref), np.sin(psi_ref)])
@@ -132,8 +137,6 @@ class F110SB3Wrapper(gym.Wrapper):
         # steer_penalty = -0.01 * abs(steer - self.prev_steer) * max(0.2, 1.0 - 5 * curvature)
         # self.prev_steer = steer
 
-        # --- Speed reward ---
-        speed_reward = 0.05 * speed
 
         # --- Raceline reward ---
         raceline_reward = 0.0
@@ -141,14 +144,17 @@ class F110SB3Wrapper(gym.Wrapper):
             dist_reward = 0.2 * np.exp(-5 * dist**2)
             heading_diff = abs(np.arctan2(np.sin(ego_theta - psi_ref), np.cos(ego_theta - psi_ref)))
             heading_reward = 0.1 * np.exp(-5 * heading_diff**2)
-            raceline_reward = dist_reward + heading_reward
+            velocity_diff = abs(speed - vx_ref)
+            velocity_reward = 0.05 * np.exp(-0.5 * velocity_diff**2)
+            raceline_reward = dist_reward + heading_reward + velocity_reward
+            
 
         reward = (
             progress_reward +
-            wall_centering_reward +
-            wall_prox_penalty +
+            # wall_centering_reward +
+            # wall_prox_penalty +
             # steer_penalty +
-            speed_reward +
+            # speed_reward +
             raceline_reward +
             collision_penalty
         )
