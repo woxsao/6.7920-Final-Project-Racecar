@@ -18,8 +18,8 @@ from stable_baselines3.common.vec_env import DummyVecEnv
 # -----------------------------
 TRACKS_DIR = "./envs/f1tenth_racetracks"
 TIMESTEP = 0.01
-TIMESTEPS_PER_TRACK = 4_000_000
-TRAIN_SPLIT = 0.8
+TIMESTEPS_PER_TRACK = 2_000_000
+TRAIN_SPLIT = 0.6
 TENSORBOARD_LOG = "./tensorboard/f110_multi_track_ppo/"
 
 # -----------------------------

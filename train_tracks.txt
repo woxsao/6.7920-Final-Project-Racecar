@@ -1,1 +1,13 @@
-./curricula/hairpin
+./envs/f1tenth_racetracks/Austin
+./envs/f1tenth_racetracks/Melbourne
+./envs/f1tenth_racetracks/Shanghai
+./envs/f1tenth_racetracks/Nuerburgring
+./envs/f1tenth_racetracks/Sakhir
+./envs/f1tenth_racetracks/BrandsHatch
+./envs/f1tenth_racetracks/Zandvoort
+./envs/f1tenth_racetracks/Montreal
+./envs/f1tenth_racetracks/Catalunya
+./envs/f1tenth_racetracks/YasMarina
+./envs/f1tenth_racetracks/Oschersleben
+./envs/f1tenth_racetracks/Mexico City
+./envs/f1tenth_racetracks/Monza
