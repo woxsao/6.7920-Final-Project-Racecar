@@ -36,6 +36,8 @@ class F110SB3Wrapper(gym.Wrapper):
                 df.columns = df.columns.str.strip()
                 self.raceline_xy = np.vstack([df["x_m"].values, df["y_m"].values]).T
                 self.raceline_vx = df["vx_mps"].values if "vx_mps" in df.columns else None
+                # print(f'Using raceline! xy : {self.raceline_xy} | vx : {self.raceline_vx}')
+                
                 self.raceline_kdtree = KDTree(self.raceline_xy)
                 # progress: use # s_m if available otherwise compute arc-length
                 if "# s_m" in df.columns:
@@ -67,7 +69,7 @@ class F110SB3Wrapper(gym.Wrapper):
         # --- Action space ---
         self.action_space = Box(
             low=np.array([-np.pi, 0.0], dtype=np.float32),
-            high=np.array([np.pi, 5.0], dtype=np.float32),
+            high=np.array([np.pi, 5.0], dtype=np.float32), # FIXME is this supposed to be capped?
             dtype=np.float32,
         )
 
@@ -124,15 +126,16 @@ class F110SB3Wrapper(gym.Wrapper):
 
     def step(self, action):
         action = np.atleast_2d(action)
-        steer = float(action[0, 0])
-        speed = float(action[0, 1])
+        steer_action = float(action[0, 0])
+        speed_action = float(action[0, 1])
 
         obs, _, done, info = self.env.step(action)
+        
         ego_idx = obs['ego_idx']
         ego_pos = np.array([obs['poses_x'][ego_idx], obs['poses_y'][ego_idx]])
         ego_theta = obs['poses_theta'][ego_idx]
 
-        # --- Find closest reference point (raceline if available else centerline) ---
+        # # --- Find closest reference point (raceline if available else centerline) ---
         if self.use_raceline and self.raceline_kdtree is not None:
             dist, idx = self.raceline_kdtree.query(ego_pos)
             ref_xy = self.raceline_xy
@@ -140,90 +143,141 @@ class F110SB3Wrapper(gym.Wrapper):
             dist, idx = self.centerline_kdtree.query(ego_pos)
             ref_xy = self.centerline_xy
 
-        # compute reference heading (tangent) at idx
-        next_idx = min(idx + 1, len(ref_xy) - 1)
-        dx = ref_xy[next_idx, 0] - ref_xy[idx, 0]
-        dy = ref_xy[next_idx, 1] - ref_xy[idx, 1]
-        psi_ref = np.arctan2(dy, dx)
+        # # compute reference heading (tangent) at idx
+        # next_idx = min(idx + 1, len(ref_xy) - 1)
+        # dx = ref_xy[next_idx, 0] - ref_xy[idx, 0]
+        # dy = ref_xy[next_idx, 1] - ref_xy[idx, 1]
+        # psi_ref = np.arctan2(dy, dx)
 
-        # --- Forward incremental progress reward (along track tangent) ---
-        track_vec = np.array([np.cos(psi_ref), np.sin(psi_ref)])
-        step_delta = ego_pos - self.last_pos if self.last_pos is not None else np.array([0.0, 0.0])
-        forward_progress = float(np.dot(step_delta, track_vec))
-        self.last_pos = ego_pos.copy()
-        progress_reward = float(np.clip(forward_progress, 0.0, 1.0))  # reward for moving forward
+        # # --- Forward incremental progress reward (along track tangent) ---
+        # track_vec = np.array([np.cos(psi_ref), np.sin(psi_ref)])
+        # step_delta = ego_pos - self.last_pos if self.last_pos is not None else np.array([0.0, 0.0])
+        # forward_progress = float(np.dot(step_delta, track_vec))
+        # self.last_pos = ego_pos.copy()
+        # progress_reward = float(np.clip(forward_progress, 0.0, 1.0))  # reward for moving forward
 
-        # --- Incremental s_m reward (stable lap progress) ---
-        progress_reward_inc = 0.0
-        if self.progress is not None:
-            prog = float(self.progress[idx])
+        # # --- Incremental s_m reward (stable lap progress) ---
+        # progress_reward_inc = 0.0
+        # if self.progress is not None:
+        #     prog = float(self.progress[idx])
+        #     prog_delta = prog - self.last_prog
+        #     # handle wrap-around if negative (optional)
+        #     if prog_delta < -0.5 * self.progress[-1]:
+        #         # agent likely wrapped to start (lap)
+        #         prog_delta = (prog + self.progress[-1]) - self.last_prog
+        #     prog_delta = max(prog_delta, 0.0)
+        #     progress_reward_inc = float(np.clip(prog_delta, 0.0, 2.0))  # cap to avoid explosion
+        #     self.last_prog = prog
+
+        # # --- Collision penalty ---
+        # collision_penalty = -1.0 if obs["collisions"][ego_idx] else 0.0
+
+        # # --- Scan-based signals ---
+        scan = obs['scans'][ego_idx].flatten()
+        # n = len(scan)
+        # # left / right coarse averages
+        # left_dist = np.mean(scan[: max(1, n // 6)])
+        # right_dist = np.mean(scan[- max(1, n // 6):])
+        # front_dist = np.mean(scan[n//3: -n//3]) if n > 6 else np.mean(scan)
+
+        # # wall proximity penalty (soft)
+        min_dist = float(np.min(scan))
+        # wall_prox_penalty = -0.02 * max(0.0, 0.15 - min_dist)
+
+        # # scan-based turn cue (lookahead sectors)
+        # look_ahead = max(1, n // 4)
+        # left_ahead = np.mean(scan[:look_ahead])
+        # right_ahead = np.mean(scan[-look_ahead:])
+        # turn_signal = np.tanh((right_ahead - left_ahead) / 2.0)  # in [-1,1]
+
+        # # only reward steering when turn_signal is significant
+        # scan_turn_reward = 0.0
+        # if abs(turn_signal) > 0.06:
+        #     # encourage steering toward more open side (scaled)
+        #     scan_turn_reward = 0.06 * turn_signal * steer_action
+
+        # # --- Raceline / heading reward (optional) ---
+        # raceline_reward = 0.0
+        # if self.use_raceline and self.raceline_kdtree is not None:
+        #     heading_diff = abs(np.arctan2(np.sin(ego_theta - psi_ref), np.cos(ego_theta - psi_ref)))
+        #     raceline_reward = 0.15 * np.exp(-8.0 * heading_diff**2)  # encourage alignment
+
+        # # --- Speed shaping (encourage moderate speed, penalize extreme in corners) ---
+        # # simple reward proportional to speed (keeps agent moving)
+        # # speed_reward = 0.03 * speed_action
+        # actual_speed = np.sqrt(obs['linear_vels_x'][0]**2 + obs['linear_vels_y'][0]**2)
+        # speed_reward = 0.01 * actual_speed
+        
+        # if actual_speed < 0.1:
+        #     speed_reward -= 0.05
+
+        # # Optional speed penalty if front is too close
+        # speed_penalty = 0.0
+        # if front_dist < 0.5:
+        #     speed_penalty = -0.05 * max(0.0, 0.5 - front_dist)
+
+        # # --- Lap completion bonus (small, on first detection) ---
+        # lap_bonus = 0.0
+        # if "lap_counts" in obs and obs["lap_counts"][ego_idx] > self.lap_count:
+        #     self.lap_count = int(obs["lap_counts"][ego_idx])
+        #     lap_bonus = 5.0
+
+        # # --- Total reward (balanced) ---
+        # reward = (
+        #     progress_reward +
+        #     progress_reward_inc +
+        #     speed_reward +
+        #     raceline_reward +
+        #     scan_turn_reward +
+        #     wall_prox_penalty +
+        #     speed_penalty +
+        #     collision_penalty +
+        #     lap_bonus
+        # )
+        
+        # 1. Progress (ONLY when moving)
+        progress_reward = 0.0
+        actual_speed = np.sqrt(obs['linear_vels_x'][0]**2 + obs['linear_vels_y'][0]**2)
+        
+        if (actual_speed > 0.3 # car actually have to be moving, not just commanding some vel
+            and self.progress is not None # have track data loaded (raceline or centerline)
+        ):
+            prog = float(self.progress[idx]) # arc length from start of track to closest point on track right now
             prog_delta = prog - self.last_prog
-            # handle wrap-around if negative (optional)
+            
             if prog_delta < -0.5 * self.progress[-1]:
-                # agent likely wrapped to start (lap)
                 prog_delta = (prog + self.progress[-1]) - self.last_prog
-            prog_delta = max(prog_delta, 0.0)
-            progress_reward_inc = float(np.clip(prog_delta, 0.0, 2.0))  # cap to avoid explosion
+                
+            progress_reward = float(np.clip(max(prog_delta, 0.0), 0.0, 0.5))
             self.last_prog = prog
 
-        # --- Collision penalty ---
-        collision_penalty = -1.0 if obs["collisions"][ego_idx] else 0.0
+        # 2. Speed (capped, only when not too close to walls)
+        speed_reward = 0.0
+        if min_dist > 0.3:
+            speed_reward = 0.03 * min(actual_speed, 2.5)
+        else:
+            speed_reward = -0.1  # Too close, slow down!
 
-        # --- Scan-based signals ---
-        scan = obs['scans'][ego_idx].flatten()
-        n = len(scan)
-        # left / right coarse averages
-        left_dist = np.mean(scan[: max(1, n // 6)])
-        right_dist = np.mean(scan[- max(1, n // 6):])
-        front_dist = np.mean(scan[n//3: -n//3]) if n > 6 else np.mean(scan)
+        # 3. Stay on track
+        track_penalty = -0.15 * min(dist, 1.5)
 
-        # wall proximity penalty (soft)
-        min_dist = float(np.min(scan))
-        wall_prox_penalty = -0.02 * max(0.0, 0.15 - min_dist)
+        # 4. Penalties
+        collision_penalty = -5.0 if obs["collisions"][ego_idx] else 0.0
+        wall_penalty = -0.5 * max(0.0, 0.25 - min_dist)
 
-        # scan-based turn cue (lookahead sectors)
-        look_ahead = max(1, n // 4)
-        left_ahead = np.mean(scan[:look_ahead])
-        right_ahead = np.mean(scan[-look_ahead:])
-        turn_signal = np.tanh((right_ahead - left_ahead) / 2.0)  # in [-1,1]
-
-        # only reward steering when turn_signal is significant
-        scan_turn_reward = 0.0
-        if abs(turn_signal) > 0.06:
-            # encourage steering toward more open side (scaled)
-            scan_turn_reward = 0.06 * turn_signal * steer
-
-        # --- Raceline / heading reward (optional) ---
-        raceline_reward = 0.0
-        if self.use_raceline and self.raceline_kdtree is not None:
-            heading_diff = abs(np.arctan2(np.sin(ego_theta - psi_ref), np.cos(ego_theta - psi_ref)))
-            raceline_reward = 0.15 * np.exp(-8.0 * heading_diff**2)  # encourage alignment
-
-        # --- Speed shaping (encourage moderate speed, penalize extreme in corners) ---
-        # simple reward proportional to speed (keeps agent moving)
-        speed_reward = 0.03 * speed
-
-        # Optional speed penalty if front is too close
-        speed_penalty = 0.0
-        if front_dist < 0.5:
-            speed_penalty = -0.05 * max(0.0, 0.5 - front_dist)
-
-        # --- Lap completion bonus (small, on first detection) ---
+        # 5. Lap bonus 
         lap_bonus = 0.0
         if "lap_counts" in obs and obs["lap_counts"][ego_idx] > self.lap_count:
             self.lap_count = int(obs["lap_counts"][ego_idx])
-            lap_bonus = 5.0
+            lap_bonus = 3.0
 
-        # --- Total reward (balanced) ---
+        # Total
         reward = (
             progress_reward +
-            progress_reward_inc +
             speed_reward +
-            raceline_reward +
-            scan_turn_reward +
-            wall_prox_penalty +
-            speed_penalty +
+            # track_penalty +
             collision_penalty +
+            # wall_penalty +
             lap_bonus
         )
 
