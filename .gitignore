@@ -2,3 +2,6 @@ tensorboard/
 __pycache__/
 .venv/
 *.DS_Store
+requirements2.txt
+requirements3.txt
+requirements4.txt

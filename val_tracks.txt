@@ -1,13 +1,1 @@
-./curricula/2_rectangle
-./curricula/hairpin
-
-./envs/f1tenth_racetracks/Silverstone
-./envs/f1tenth_racetracks/Spa
-./envs/f1tenth_racetracks/IMS
-./envs/f1tenth_racetracks/Budapest
-./envs/f1tenth_racetracks/Spielberg
-./envs/f1tenth_racetracks/Hockenheim
-./envs/f1tenth_racetracks/Sepang
-./envs/f1tenth_racetracks/Sochi
-./envs/f1tenth_racetracks/MoscowRaceway
-./envs/f1tenth_racetracks/SaoPaulo
+./envs/f1tenth_racetracks/Austin

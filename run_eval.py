@@ -1,9 +1,9 @@
 import subprocess
 
-MODEL_PATH = "./curricula_results/ppo_f110_0_circle.zip"
-VAL_TRACKS_FILE = "train_tracks.txt" # "train_tracks.txt"   # or train_tracks.txt
-MODEL_PATH = "results/ppo_f110_multi_track_5_tracks_2mil_per_track"
-VAL_TRACKS_FILE = "train_tracks.txt"   # or train_tracks.txt
+MODEL_PATH = "./curricula_results/ppo_f110_curricula.zip"
+VAL_TRACKS_FILE = "val_tracks.txt" # "train_tracks.txt"   # or train_tracks.txt
+# MODEL_PATH = "results/ppo_f110_multi_track_5_tracks_2mil_per_track"
+# VAL_TRACKS_FILE = "train_tracks.txt"   # or train_tracks.txt
 
 
 def get_tracks_list(file_path):
@@ -13,7 +13,7 @@ def get_tracks_list(file_path):
 
 def main():
     tracks = get_tracks_list(VAL_TRACKS_FILE)
-    tracks = ["./curricula/0_circle"]
+    # tracks = ["./curricula/0_circle"]
 
     for i, track in enumerate(tracks):
         print("\n==============================")

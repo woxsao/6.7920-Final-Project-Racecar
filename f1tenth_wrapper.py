@@ -143,11 +143,11 @@ class F110SB3Wrapper(gym.Wrapper):
             dist, idx = self.centerline_kdtree.query(ego_pos)
             ref_xy = self.centerline_xy
 
-        # # compute reference heading (tangent) at idx
-        # next_idx = min(idx + 1, len(ref_xy) - 1)
-        # dx = ref_xy[next_idx, 0] - ref_xy[idx, 0]
-        # dy = ref_xy[next_idx, 1] - ref_xy[idx, 1]
-        # psi_ref = np.arctan2(dy, dx)
+        # compute reference heading (tangent) at idx
+        next_idx = min(idx + 1, len(ref_xy) - 1)
+        dx = ref_xy[next_idx, 0] - ref_xy[idx, 0]
+        dy = ref_xy[next_idx, 1] - ref_xy[idx, 1]
+        psi_ref = np.arctan2(dy, dx)
 
         # # --- Forward incremental progress reward (along track tangent) ---
         # track_vec = np.array([np.cos(psi_ref), np.sin(psi_ref)])
@@ -271,6 +271,11 @@ class F110SB3Wrapper(gym.Wrapper):
             self.lap_count = int(obs["lap_counts"][ego_idx])
             lap_bonus = 3.0
 
+        # 6. Heading bonus
+        heading_error = abs(np.arctan2(np.sin(ego_theta - psi_ref), 
+                                    np.cos(ego_theta - psi_ref)))
+        heading_reward = 0.1 * np.exp(-3.0 * heading_error**2)
+
         # Total
         reward = (
             progress_reward +
@@ -278,7 +283,8 @@ class F110SB3Wrapper(gym.Wrapper):
             # track_penalty +
             collision_penalty +
             # wall_penalty +
-            lap_bonus
+            lap_bonus + 
+            heading_reward
         )
 
         # Convert observations to np.float32 flattened dict (same as before)

@@ -1,4 +1,5 @@
 import os
+from typing import OrderedDict
 import yaml
 import numpy as np
 import pandas as pd
@@ -7,7 +8,7 @@ from argparse import Namespace
 from stable_baselines3 import PPO
 from f110_gym.envs.base_classes import Integrator
 from f1tenth_wrapper import F110SB3Wrapper
-from multi_track_env import MultiTrackEnv
+from multi_track_env import MultiTrackCurriculumEnv, MultiTrackEnv
 import warnings
 from utils import load_track_config, get_initial_pose, make_env_from_track, get_tracks_list
 from stable_baselines3.common.env_util import make_vec_env
@@ -51,11 +52,16 @@ def main():
     # -----------------------------
     # Multi-track training environment
     # -----------------------------
-    curriculum = yaml.safe_load(open("curriculum.yaml", "r"))
-    x = lambda : MultiTrackEnv(train_tracks, lambda p: make_env_from_track(p, use_raceline=True))
+    FULL_CURRICULA = True
+    curriculum = OrderedDict(yaml.safe_load(open("curriculum.yaml", "r")))
     
-    # train_env = make_vec_env(x, n_envs=8)
-    train_env = x()
+    if FULL_CURRICULA:
+        train_env = MultiTrackCurriculumEnv(curriculum, lambda p: make_env_from_track(p, use_raceline=False))
+    else:
+        x = lambda : MultiTrackEnv(train_tracks, lambda p: make_env_from_track(p, use_raceline=False))
+        # train_env = make_vec_env(x, n_envs=8)
+        train_env = x()
+    
     train_env.reset()
 
     # -----------------------------
@@ -77,9 +83,17 @@ def main():
     )
 
     # Train
-    total_timesteps = TIMESTEPS_PER_TRACK * len(train_tracks)
+    if FULL_CURRICULA:
+        total_timesteps = sum(curriculum.values())
+    else:
+        total_timesteps = TIMESTEPS_PER_TRACK * len(train_tracks)
+
     model.learn(total_timesteps, callback=ActionLoggingCallback())
-    model.save("curricula_results/ppo_f110_0_circle")
+    model_name = 'ppo_f110_curricula'
+    model.save(f"curricula_results/{model_name}")
+    with open("output.yaml", "w") as f:
+        yaml.dump(f'{model_name}_yaml', f, sort_keys=False)
+    
     print("Training complete and saved!")
 
 
@@ -90,25 +104,17 @@ class ActionLoggingCallback(BaseCallback):
     Arguments:
     - log_freq: log action every N environment steps.
     """
-
-    def __init__(self, log_freq=1, verbose=0):
+    def __init__(self, log_freq=50, verbose=0):
         super().__init__(verbose)
         self.log_freq = log_freq
         self.global_step = 0
 
     def _on_step(self) -> bool:
-        """
-        Called at each environment step when using on_policy algorithms,
-        or at each rollout collection step for off_policy algorithms.
-        """
-
-        # Increment step counter
         self.global_step += 1
 
         # Access actions from the rollout buffer (always stores the *previous* step’s action)
         actions = self.locals.get("actions", None)
 
-        # Some algorithms store actions inside env attributes instead
         if actions is None:
             # Vectorized env trick: gets last actions taken by env step()
             actions = getattr(self.training_env, "last_actions", None)
@@ -116,13 +122,12 @@ class ActionLoggingCallback(BaseCallback):
         if actions is None:
             return True  # can't log, skip
 
-        # Sampled logging
         if self.global_step % self.log_freq == 0:
             actions = np.array(actions)
 
-            # Handle both single env and VecEnv
+            # should handle both single env and VecEnv
             if actions.ndim == 1:
-                # Example: [steer, throttle]
+                # actions are [steer, throttle]
                 for i, a in enumerate(actions):
                     self.logger.record(f"actions/action_{i}", a)
             else:
@@ -131,7 +136,6 @@ class ActionLoggingCallback(BaseCallback):
                     for a_i in range(actions.shape[1]):
                         self.logger.record(f"actions/env{env_i}_action_{a_i}", actions[env_i, a_i])
 
-            # SB3 requires calling logger.dump at training frequency, but callbacks let SB3 handle it
         return True
 
 
